@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
 
+# Simple Logistic Regression Model
 class MulticlassLogisticRegression(nn.Module):
     def __init__(self, input_size, num_classes):
         super(MulticlassLogisticRegression, self).__init__()
@@ -23,10 +23,23 @@ def main(args):
     # print(args.id_map)
     # print(args.out)
 
-    threshold_classes = [1, 2, 4, 8, 16, 32, 64, 128, 256]
-    input_size = 10
+    X = [] # Input Feature Data 
+    y = [] # Threshold Values
 
-    model = MulticlassLogisticRegression(input_size, threshold_classes)
+    # Convert data to PyTorch tensors
+    X_tensor = torch.tensor(X, dtype=torch.float32)
+    y_tensor = torch.tensor(y, dtype=torch.long)
+
+
+    threshold_classes = [1, 2, 4, 8, 16, 32, 64, 128, 256] # Output 
+    feature_size = 10                                      # Feature length
+    
+    # Create a DataLoader
+    dataset = TensorDataset(X_tensor, y_tensor)
+    dataloader = DataLoader(dataset, batch_size=feature_size, shuffle=True)
+
+    
+    model = MulticlassLogisticRegression(feature_size, threshold_classes)
 
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
