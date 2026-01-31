@@ -67,12 +67,14 @@ def make_flattened():
                 "family": entry["family"],
                 "is_cpu": result["is_cpu"],
                 "is_single": result["is_single"],
-                "threshold": result["threshold"],
-                "seconds": result["seconds"],
                 "n_meas": n_meas,
                 "n_cx": n_cx,
                 "n_cz": n_cz,
-                "n_1q": n_1q
+                "n_1q": n_1q,
+
+                # predict these:
+                "threshold": result["threshold"],
+                "seconds": result["seconds"],
             })
     return ret
 

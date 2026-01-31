@@ -19,9 +19,9 @@ for state, color, label in zip(states, colors, labels):
     x, y = [], []
     for record in flattened:
         if (record["is_cpu"], record["is_single"]) == state:
-            if record["n_cx"] < 0.01:
-                continue
-            x.append(log(record["n_cx"]))
+            # if record["family"] < 0.01:
+            #     continue
+            x.append(log(record["lines"]))
             y.append(log(record["threshold"])/log(2))
     
     plt.scatter(x, y, c=color, label=label, alpha=0.6)
