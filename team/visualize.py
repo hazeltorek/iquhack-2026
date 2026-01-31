@@ -1,13 +1,12 @@
 import analysis
-from analysis import cats
 import matplotlib.pyplot as plt
 from math import log
 
-# visualize each {x:y} in cats
-cats = cats[True, True]
-print(len(cats))
-for key in cats:
-    if log(cats[key]) > 0.0:
-        plt.scatter(log(key), log(cats[key])/log(2), label=str(key))
+data = analysis.data
 
+state = (True, True) # CPU, single
+x = [d["file_len"] for d in data.values()]
+y = [min([r["threshold"] for r in d["thresholds"] if (r["is_cpu"], r["is_single"]) == state], default=1.0) for d in data.values()]
+plt.scatter(x, y)
+plt.yscale("log")
 plt.show()
