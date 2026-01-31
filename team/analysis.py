@@ -17,23 +17,22 @@ def process_circuit(name):
     b = [res for res in results if res["file"] == name]
     length = [len(c) for (f, c) in code if f == name][0]
     
-    threshold_data = []
+    just_past = []
     for test in b:
-        del test['forward']
         run_fid = None
-        for run in test['threshold_sweep']:
+        for run in sorted(test['threshold_sweep'], key=lambda x: x["threshold"]):
             fid = run["sdk_get_fidelity"]
             if isinstance(fid, float) and fid > 0.99:
                 run_fid = run
                 break
         if run_fid is not None:
-            threshold_data.append({
-                "backend": test["backend"],
-                "precision": test["precision"],
+            just_past.append({
+                "threshold": run_fid["threshold"],
                 "is_cpu": test["backend"] == "CPU",
                 "is_single": test["precision"] == "single",
-                "file_len": length,
-                "threshold": run_fid['threshold']
+                "backend": test["backend"],
+                "precision": test["precision"],
+                "seconds": run_fid['run_wall_s']
             })
 
     # organize results by the given predictors (cpu/gpu, single/double)
@@ -43,8 +42,27 @@ def process_circuit(name):
         "n": a["n_qubits"], 
         "file_len": length, 
         "results": pred,
-        "thresholds": threshold_data
+        "just_past": just_past,
     }
+
+def make_flattened():
+    ret = []
+    for file_name in data:
+        entry = data[file_name]
+        for result in entry["just_past"]:
+            ret.append((
+                file_name,
+                entry["n"],
+                entry["file_len"],
+                result["is_cpu"],
+                result["is_single"],
+                result["threshold"],
+                result["seconds"]
+            ))
+    return ret
 
 # organize the data. key is circuit, other stuff is named entries under that with results as tuple keys
 data = {re.match(r"(.+).qasm", f)[1]: process_circuit(f) for (f, _) in code}
+flattened = make_flattened()
+
+print(flattened[:5])
