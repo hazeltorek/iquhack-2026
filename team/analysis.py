@@ -1,7 +1,7 @@
 import json, os, re
 import matplotlib.pyplot as plt
+import networkx as nx
 
-os.chdir("..")
 cats = {(True, True): {}, (True, False): {}, (False, True): {}, (False, False): {}}
 
 # read all the circuits into an array
@@ -41,3 +41,20 @@ def process_circuit(name):
 # organize the data. key is circuit, other stuff is named entries under that with results as tuple keys
 data = {re.match(r"(.+).qasm", f)[1]: process_circuit(f) for (f, _) in code}
 
+# pairs of qubits that interact via 2-qubit gates
+def get_pairs(qasm):
+    # i saw the face of god in a regular expression
+    return sorted(list(set([tuple(sorted(list(map(int, p)))) for p in re.findall(r"[a-z]+(?:\((?:-{0,1}(?:\d+\.{0,1}\d+|pi(?:\/\d+){0,1}),{0,1}){1,3}\)){0,1}\sq\[(\d+)\],\s*q\[(\d+)\];", qasm)])))
+
+# build interaction graph and get cool useful statistics out of it
+graphs = {f: nx.Graph(get_pairs("\n".join(qasm))) for (f, qasm) in code}
+for f in data.keys(): 
+    data[f]["degree"] = max([0] + list(map(lambda d: d[1], graphs[(fn := f"{f}.qasm")].degree())))
+    data[f]["n_edges"] = graphs[fn].number_of_edges()
+    data[f]["centrality"] = max([0] + list(nx.degree_centrality(graphs[fn]).values()))
+    data[f]["n_clusters"] = nx.number_connected_components(graphs[fn])
+
+print(data[code[2][0][:-5]]["degree"])
+print(data[code[2][0][:-5]]["n_edges"])
+print(data[code[2][0][:-5]]["centrality"])
+print(data[code[2][0][:-5]]["n_clusters"])
