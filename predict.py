@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+
+
 # organized data!
 def process_circuit(name):
     a = [circ for circ in circuits if circ["file"] == name][0]
@@ -107,9 +109,6 @@ def main(args):
     flattened = make_flattened()
 
 
-    
-
-    # print(flattened[:5])
 
     X = [] # Input Feature Data 
     y = [] # Threshold Values
@@ -140,10 +139,11 @@ def main(args):
     feature_size = len(X[0])                               # Feature length
     y_mapped = [threshold_classes.index(threshold) for threshold in y]
 
-    # Use y_mapped instead of y in train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_mapped, test_size=0.3, random_state=42)
 
-    
+    print(y)    
+
+    # Use y_mapped instead of y in train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_mapped, test_size=0.2, random_state=42)
 
     # Convert data to PyTorch tensors
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
