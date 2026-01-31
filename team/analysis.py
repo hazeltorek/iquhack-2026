@@ -49,20 +49,32 @@ def make_flattened():
     ret = []
     for file_name in data:
         entry = data[file_name]
+
+        text = "".join([c for (f, c) in code if f == file_name + ".qasm"][0])
+        
+        n_meas = len(re.findall(r"\bmeasure\b", text))
+        n_cx = len(re.findall(r"\bcx\b", text))
+        n_cz = len(re.findall(r"\bcz\b", text))
+        n_1q = len(re.findall(r"\b(h|x|y|z|s|sdg|t|tdg|rx|ry|rz|u1|u2|u3)\b", text))
+        
         for result in entry["just_past"]:
-            ret.append((
-                file_name,
-                entry["n"],
-                entry["file_len"],
-                result["is_cpu"],
-                result["is_single"],
-                result["threshold"],
-                result["seconds"]
-            ))
+            ret.append({
+                "file_name": file_name,
+                "n": entry["n"],
+                "file_len": entry["file_len"],
+                "lines": text.count("\n"),
+                "family": entry["family"],
+                "is_cpu": result["is_cpu"],
+                "is_single": result["is_single"],
+                "threshold": result["threshold"],
+                "seconds": result["seconds"],
+                "n_meas": n_meas,
+                "n_cx": n_cx,
+                "n_cz": n_cz,
+                "n_1q": n_1q
+            })
     return ret
 
 # organize the data. key is circuit, other stuff is named entries under that with results as tuple keys
 data = {re.match(r"(.+).qasm", f)[1]: process_circuit(f) for (f, _) in code}
 flattened = make_flattened()
-
-print(flattened[:5])

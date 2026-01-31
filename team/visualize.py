@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from math import log
 import numpy as np
 
-data = analysis.data
+flattened = analysis.flattened
 
 # All permutations of (is_cpu, is_single)
 states = [
@@ -15,20 +15,14 @@ states = [
 colors = ['blue', 'red', 'green', 'orange']
 labels = ['CPU/Single', 'CPU/Double', 'GPU/Single', 'GPU/Double']
 
-
-# append to x, y
-def plot_point(file_name, entry, x, y):
-    x.append(entry["n"])
-    y.append(log(entry["file_len"])/log(2))
-
-
-for state, color, label, i in zip(states, colors, labels, range(len(states))):
+for state, color, label in zip(states, colors, labels):
     x, y = [], []
-    for file_name in data:
-        entry = data[file_name]
-        for result in entry["just_past"]:
-            if (result["is_cpu"], result["is_single"]) == state:
-                plot_point(file_name, entry, x, y)
+    for record in flattened:
+        if (record["is_cpu"], record["is_single"]) == state:
+            if record["n_cx"] < 0.01:
+                continue
+            x.append(log(record["n_cx"]))
+            y.append(log(record["threshold"])/log(2))
     
     plt.scatter(x, y, c=color, label=label, alpha=0.6)
     
@@ -39,11 +33,9 @@ for state, color, label, i in zip(states, colors, labels, range(len(states))):
     x_line = np.linspace(min(x), max(x), 100)
     plt.plot(x_line, poly(x_line), c=color, linestyle='--', linewidth=2, alpha=0.8)
 
-print(len(x))
-
 plt.xlabel("Number of Qubits (n)")
-plt.ylabel("log2(threshold)")
+plt.ylabel("log2(file_len)")
 plt.legend()
-plt.title("Threshold vs Number of Qubits")
+plt.title("File Lines vs Number of Qubits")
 plt.show()
 
