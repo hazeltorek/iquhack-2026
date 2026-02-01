@@ -1,0 +1,25 @@
+{
+  "model_type": "random_forest_minimal_baseline",
+  "features": [
+    "entanglement_stress",
+    "density",
+    "n_cz",
+    "n_barriers",
+    "axis_c_packing"
+  ],
+  "difficulty_features": [
+    "entanglement_stress",
+    "axis_a_volume",
+    "axis_c_packing",
+    "circuit_depth",
+    "n_qubits"
+  ],
+  "train_correlation": 0.9852152815076812,
+  "test_correlation": 0.6112235473790023,
+  "train_underestimation_rate": 0.0,
+  "test_underestimation_rate": 0.0,
+  "fidelity_target": 0.75,
+  "used_recommended_split": true,
+  "binning_method": "feature_based_aggressive",
+  "n_features": 5
+}
