@@ -1,0 +1,95 @@
+{
+  "schema": "iqhack_predictions_v1",
+  "predictions": [
+    {
+      "id": "H001",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 0.0009765625
+    },
+    {
+      "id": "H002",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H003",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H004",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H005",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H006",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 0.0009765625
+    },
+    {
+      "id": "H007",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H008",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H009",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H010",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H011",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 0.0009765625
+    },
+    {
+      "id": "H012",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H013",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H014",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H015",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H016",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 0.0009765625
+    },
+    {
+      "id": "H017",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    },
+    {
+      "id": "H018",
+      "predicted_threshold_min": 2,
+      "predicted_forward_wall_s": 400.0
+    }
+  ]
+}

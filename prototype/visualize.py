@@ -61,7 +61,7 @@ def plot_best_correlations(df, corr_thresh, corr_runtime, top_n=5):
                 if len(family_data) > 0:
                     x_vals = family_data[feat].values
                     y_vals = family_data['min_threshold'].values
-                    valid = np.isfinite(x_vals) & np.isfinite(y_vals)
+                    valid = np.isfinite(x_vals) & np.isfinite(y_vals) & (x_vals > 0)
                     x_vals = x_vals[valid]
                     y_vals = y_vals[valid]
                     if len(x_vals) > 0:
@@ -70,29 +70,41 @@ def plot_best_correlations(df, corr_thresh, corr_runtime, top_n=5):
             if idx == 0:
                 ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
             data_all = df[[feat, 'min_threshold']].dropna()
+            data_all = data_all[data_all[feat] > 0]
             if len(data_all) > 1:
                 try:
-                    z = np.polyfit(data_all[feat], data_all['min_threshold'], 1)
-                    p = np.poly1d(z)
-                    x_line = np.linspace(data_all[feat].min(), data_all[feat].max(), 100)
-                    ax.plot(x_line, p(x_line), "k--", linewidth=2, alpha=0.5, label='Overall trend')
+                    # Fit in log space for better visualization
+                    log_x = np.log10(data_all[feat])
+                    log_y = np.log10(data_all['min_threshold'])
+                    z = np.polyfit(log_x, log_y, 1)
+                    x_line = np.logspace(np.log10(data_all[feat].min()), 
+                                        np.log10(data_all[feat].max()), 100)
+                    y_line = 10 ** (z[0] * np.log10(x_line) + z[1])
+                    ax.plot(x_line, y_line, "k--", linewidth=2, alpha=0.5, label='Overall trend')
                 except:
                     pass
         else:
             data = df[[feat, 'min_threshold']].dropna()
+            data = data[data[feat] > 0]
             if len(data) > 0:
                 ax.scatter(data[feat], data['min_threshold'], alpha=0.5, s=30)
                 if len(data) > 1 and np.std(data[feat]) > 1e-10 and np.std(data['min_threshold']) > 1e-10:
                     try:
-                        z = np.polyfit(data[feat], data['min_threshold'], 1)
-                        p = np.poly1d(z)
-                        x_line = np.linspace(data[feat].min(), data[feat].max(), 100)
-                        ax.plot(x_line, p(x_line), "r--", linewidth=1)
+                        log_x = np.log10(data[feat])
+                        log_y = np.log10(data['min_threshold'])
+                        z = np.polyfit(log_x, log_y, 1)
+                        x_line = np.logspace(np.log10(data[feat].min()), 
+                                            np.log10(data[feat].max()), 100)
+                        y_line = 10 ** (z[0] * np.log10(x_line) + z[1])
+                        ax.plot(x_line, y_line, "r--", linewidth=1)
                     except:
                         pass
         ax.set_title(f'{feat[:20]}\n{val:.3f}')
         ax.set_xlabel(feat[:15])
         ax.set_ylabel('threshold')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3, which='both')
     plt.tight_layout()
     plt.show(block=False)
 
@@ -107,18 +119,23 @@ def plot_best_correlations(df, corr_thresh, corr_runtime, top_n=5):
     for idx, (feat, val) in enumerate(top_runtime.items()):
         ax = axes2[idx]
         data = df[[feat, 'log_runtime']].dropna()
+        data = data[data[feat] > 0]
         if len(data) > 0:
             ax.scatter(data[feat], data['log_runtime'], alpha=0.5, s=30)
             if len(data) > 1 and np.std(data[feat]) > 1e-10 and np.std(data['log_runtime']) > 1e-10:
                 try:
-                    z = np.polyfit(data[feat], data['log_runtime'], 1)
-                    p = np.poly1d(z)
-                    x_line = np.linspace(data[feat].min(), data[feat].max(), 100)
-                    ax.plot(x_line, p(x_line), "r--", linewidth=1)
+                    log_x = np.log10(data[feat])
+                    z = np.polyfit(log_x, data['log_runtime'], 1)
+                    x_line = np.logspace(np.log10(data[feat].min()), 
+                                        np.log10(data[feat].max()), 100)
+                    y_line = z[0] * np.log10(x_line) + z[1]
+                    ax.plot(x_line, y_line, "r--", linewidth=1)
                 except:
                     pass
             ax.set_title(f'{feat[:20]}\n{val:.3f}')
             ax.set_xlabel(feat[:15])
             ax.set_ylabel('log_runtime')
+            ax.set_xscale('log')
+            ax.grid(True, alpha=0.3, which='both')
     plt.tight_layout()
     plt.show(block=False)
