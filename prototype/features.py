@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import networkx as nx
+import numpy as np
 
 
 # Stolen
@@ -85,7 +86,7 @@ def extract_graph_features(qasm_text: str) -> Dict[str, float]:
     distances = [abs(q1 - q2) for q1, q2 in pairs]
     avg_distance = sum(distances) / len(distances) if distances else 0.0
     
-    # Entanglement Variance QASMBench metri thingy
+    # Entanglement Variance QASMBench metric thingy
     if len(degrees) > 1:
         degree_variance = sum((d - avg_degree) ** 2 for d in degrees) / len(degrees)
     else:
@@ -95,15 +96,14 @@ def extract_graph_features(qasm_text: str) -> Dict[str, float]:
         "n_edges": float(n_edges),
         "max_degree": float(max_degree),
         "avg_degree": float(avg_degree),
-        "n_connected_components": float(n_components),
+        "n_connected_comps": float(n_components),
         "max_centrality": float(max_centrality),
         "avg_qubit_distance": float(avg_distance),
-        "entanglement_variance": float(degree_variance),
+        "etgl_variance": float(degree_variance),
     }
 
 
 def extract_circuit_depth(qasm_text: str, n_qubits: int) -> Dict[str, float]:
-    """Extract true circuit depth using time-evolution analysis (QASMBench method)."""
     # Parse gates
     lines = [ln.strip() for ln in qasm_text.splitlines() 
              if ln.strip() and not ln.strip().startswith("//") 
@@ -121,14 +121,12 @@ def extract_circuit_depth(qasm_text: str, n_qubits: int) -> Dict[str, float]:
     
     for line in lines:
         if line.startswith("barrier"):
-            # Barrier forces a new time step
             if active_qubits:
                 current_time += 1
                 active_qubits = set()
             continue
         
         if line.startswith("measure"):
-            # Measurements happen at the end, don't affect depth
             continue
         
         # Extract qubits involved in this gate
@@ -141,7 +139,6 @@ def extract_circuit_depth(qasm_text: str, n_qubits: int) -> Dict[str, float]:
                 current_time += 1
                 active_qubits = set(qubits_in_gate)
     
-    # Final time step
     if active_qubits:
         current_time += 1
     
@@ -157,15 +154,13 @@ def extract_circuit_depth(qasm_text: str, n_qubits: int) -> Dict[str, float]:
 
 
 def extract_depth_proxy(qasm_text: str) -> Dict[str, float]:
-    """Extract crude depth proxy by counting barriers or estimating layers."""
-    # Count barriers (often used to separate layers)
     n_barriers = len(re.findall(r"\bbarrier\b", qasm_text))
     
     # Simple heuristic this is very approximate but can help
     lines = [ln.strip() for ln in qasm_text.splitlines() 
              if ln.strip() and not ln.strip().startswith("//")]
     
-    #Big brother recommended
+    # Big brother recommended
     gate_lines = [ln for ln in lines 
                   if not ln.startswith("measure") and not ln.startswith("barrier")]
     depth_proxy = len(gate_lines)
@@ -175,6 +170,188 @@ def extract_depth_proxy(qasm_text: str) -> Dict[str, float]:
         "depth_proxy": float(depth_proxy),
     }
 
+
+def extract_axis_features(qasm_text: str, n_qubits: int, pairs: List[Tuple[int, int]], 
+                          circuit_depth: float) -> Dict[str, float]:
+    
+    # Axis A: Entanglement Volume (global)
+    n_2q = len(pairs)
+    n_unique_pairs = len(set(pairs))
+    axis_a_volume = n_2q * n_unique_pairs / (n_qubits + 1e-10)
+    
+    # Axis B: Entanglement Concentration (local bottlenecks)
+    if pairs:
+        G = nx.Graph(pairs)
+        degrees = [d for _, d in G.degree()]
+        max_degree = max(degrees) if degrees else 0.0
+        avg_degree = sum(degrees) / len(degrees) if degrees else 0.0
+        if len(degrees) > 1:
+            degree_variance = sum((d - avg_degree) ** 2 for d in degrees) / len(degrees)
+        else:
+            degree_variance = 0.0
+        axis_b_concentration = max_degree / (avg_degree + 1e-10)
+    else:
+        axis_b_concentration = 0.0
+        max_degree = 0.0
+        degree_variance = 0.0
+    
+    # Axis C: Packing (when entanglement happens)
+    lines = [ln.strip() for ln in qasm_text.splitlines() 
+             if ln.strip() and not ln.strip().startswith("//")]
+    n_2q_gates = len(re.findall(r"\b(cx|cz)\b", qasm_text))
+    gate_density = n_2q_gates / (circuit_depth + 1e-10)
+    
+    # Early interaction 
+    early_depth = max(1, int(circuit_depth * 0.25))
+    early_2q_count = 0
+    current_depth = 0
+    active_qubits = set()
+    qubit_pattern = re.compile(r"q\[(\d+)\]")
+    
+    for line in lines[:min(len(lines), early_depth * 10)]:
+        if line.startswith("barrier") or line.startswith("measure"):
+            if active_qubits:
+                current_depth += 1
+                active_qubits = set()
+            continue
+        
+        qubits_in_gate = [int(m) for m in qubit_pattern.findall(line)]
+        if len(qubits_in_gate) == 2:
+            early_2q_count += 1
+        
+        if qubits_in_gate:
+            if active_qubits.isdisjoint(set(qubits_in_gate)):
+                active_qubits.update(qubits_in_gate)
+            else:
+                current_depth += 1
+                active_qubits = set(qubits_in_gate)
+            if current_depth >= early_depth:
+                break
+    
+    early_density = early_2q_count / (early_depth + 1e-10)
+    axis_c_packing = gate_density * early_density
+    
+    # Axis D: Entanglement Growth Rate (dynamics)
+    # Slope of cumulative 2Q gates vs depth
+    depth_slices = []
+    cumulative_2q = []
+    current_depth = 0
+    cumulative = 0
+    active_qubits = set()
+    
+    for line in lines:
+        if line.startswith("barrier") or line.startswith("measure"):
+            if active_qubits:
+                current_depth += 1
+                depth_slices.append(current_depth)
+                cumulative_2q.append(cumulative)
+                active_qubits = set()
+            continue
+        
+        qubits_in_gate = [int(m) for m in qubit_pattern.findall(line)]
+        if len(qubits_in_gate) == 2:
+            cumulative += 1
+        
+        if qubits_in_gate:
+            if active_qubits.isdisjoint(set(qubits_in_gate)):
+                active_qubits.update(qubits_in_gate)
+            else:
+                current_depth += 1
+                depth_slices.append(current_depth)
+                cumulative_2q.append(cumulative)
+                active_qubits = set(qubits_in_gate)
+    
+    if len(depth_slices) > 1:
+        try:
+            growth_slope = np.polyfit(depth_slices, cumulative_2q, 1)[0]
+        except:
+            growth_slope = n_2q_gates / (circuit_depth + 1e-10)
+    else:
+        growth_slope = n_2q_gates / (circuit_depth + 1e-10)
+    
+    # Growth/depth term
+    early_third_depth = max(1, int(circuit_depth * 0.33))
+    early_2q_count = 0
+    early_depth_tracker = 0
+    early_active_qubits = set()
+    
+    for line in lines[:min(len(lines), early_third_depth * 10)]:
+        if line.startswith("barrier") or line.startswith("measure"):
+            if early_active_qubits:
+                early_depth_tracker += 1
+                early_active_qubits = set()
+            continue
+        
+        early_qubits_in_gate = [int(m) for m in qubit_pattern.findall(line)]
+        if len(early_qubits_in_gate) == 2:
+            early_2q_count += 1
+        
+        if early_qubits_in_gate:
+            if early_active_qubits.isdisjoint(set(early_qubits_in_gate)):
+                early_active_qubits.update(early_qubits_in_gate)
+            else:
+                early_depth_tracker += 1
+                early_active_qubits = set(early_qubits_in_gate)
+            if early_depth_tracker >= early_third_depth:
+                break
+    
+    early_growth_rate = early_2q_count / (n_qubits + 1e-10)
+    
+    # Depth until graph becomes connected
+    if pairs:
+        G = nx.Graph(pairs)
+        connected_depth = circuit_depth
+        temp_G = nx.Graph()
+        current_depth = 0
+        active_qubits = set()
+        
+        for line in lines:
+            if line.startswith("barrier") or line.startswith("measure"):
+                if active_qubits:
+                    current_depth += 1
+                    active_qubits = set()
+                continue
+            
+            qubits_in_gate = [int(m) for m in qubit_pattern.findall(line)]
+            if len(qubits_in_gate) == 2:
+                temp_G.add_edge(qubits_in_gate[0], qubits_in_gate[1])
+                if nx.is_connected(temp_G) and connected_depth == circuit_depth:
+                    connected_depth = current_depth
+            
+            if qubits_in_gate:
+                if active_qubits.isdisjoint(set(qubits_in_gate)):
+                    active_qubits.update(qubits_in_gate)
+                else:
+                    current_depth += 1
+                    active_qubits = set()
+    else:
+        connected_depth = circuit_depth
+    
+    axis_d_growth = growth_slope * (circuit_depth / (connected_depth + 1e-10))
+    
+    # Bottleneck term: max_degree and max_degree / avg_degree
+    if pairs:
+        G = nx.Graph(pairs)
+        degrees = [d for _, d in G.degree()]
+        max_degree = max(degrees) if degrees else 0.0
+        avg_degree = sum(degrees) / len(degrees) if degrees else 0.0
+        bottleneck_ratio = max_degree / (avg_degree + 1e-10) if avg_degree > 0 else 0.0
+    else:
+        max_degree = 0.0
+        bottleneck_ratio = 0.0
+    
+    return {
+        "axis_a_volume": float(axis_a_volume),
+        "axis_b_concentration": float(axis_b_concentration),
+        "axis_c_packing": float(axis_c_packing),
+        "axis_d_growth": float(growth_slope),
+        "early_density": float(early_density),
+        "early_growth_rate": float(early_growth_rate),
+        "max_degree": float(max_degree),
+        "bottleneck_ratio": float(bottleneck_ratio),
+        "growth_slope": float(growth_slope),
+        "connected_depth": float(connected_depth),
+    }
 
 def extract_all_features(qasm_text: str, n_qubits: Optional[int] = None) -> Dict[str, float]:
     features = {}
@@ -198,6 +375,11 @@ def extract_all_features(qasm_text: str, n_qubits: Optional[int] = None) -> Dict
     if features["n_qubits"] > 0:
         depth_features = extract_circuit_depth(qasm_text, int(features["n_qubits"]))
         features.update(depth_features)
+        circuit_depth = features.get("circuit_depth", 0.0)
+        
+        pairs = extract_qubit_pairs(qasm_text)
+        axis_features = extract_axis_features(qasm_text, int(features["n_qubits"]), pairs, circuit_depth)
+        features.update(axis_features)
     else:
         features.update(extract_depth_proxy(qasm_text))
         features["circuit_depth"] = 0.0
@@ -206,7 +388,6 @@ def extract_all_features(qasm_text: str, n_qubits: Optional[int] = None) -> Dict
         features["gates_per_qubit"] = features["n_total_gates"] / features["n_qubits"]
         features["density"] = features["n_edges"] / (features["n_qubits"] * (features["n_qubits"] - 1) / 2) if features["n_qubits"] > 1 else 0.0
         
-        # Occupancy of gate slots
         # Gate density = total_gates / (n_qubits * circuit_depth)
         if features.get("circuit_depth", 0) > 0:
             features["gate_density"] = features["n_total_gates"] / (features["n_qubits"] * features["circuit_depth"])
