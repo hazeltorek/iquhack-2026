@@ -1,7 +1,11 @@
 import argparse
 import json, os, re
+import os.path
 import networkx as nx
 from typing import Dict
+
+import copy
+import tqdm
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,9 +19,6 @@ from sklearn.model_selection import train_test_split
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler
-
-from sklearn.linear_model import LinearRegression
-
 
 # pairs of qubits that interact via 2-qubit gates
 def get_pairs(qasm):
@@ -44,7 +45,7 @@ def process_circuit(name):
         run_fid = None
         for run in sorted(test['threshold_sweep'], key=lambda x: x["threshold"]):
             fid = run["sdk_get_fidelity"]
-            if isinstance(fid, float) and fid > 0.75:
+            if isinstance(fid, float) and fid > 0.99:
                 run_fid = run
                 break
         if run_fid is not None:
@@ -228,34 +229,30 @@ def main(args):
     y = [] # Threshold Values
 
     for val in flattened:
+
         features = [
             val["n"],
             val["threshold"],
-            # # val["max_deg"],
-            # # # val["file_len"], 
-            # #val["lines"],
-            # #val["threshold"],
-            # # val["n_meas"],
+            val["n_meas"],
             int(val["is_cpu"]),
             int(val["is_single"]),
-            # # val["n_cx"],
-            # # val["n_cz"],
-            # #val["n_1q"],   
             val["depth_proxy"],
-            # #val["circuit_depth"],
-            # #val["n_barriers"]    
+            val["n_cx"] + val["n_cz"],  # Total 2-qubit gates
+            val["n_1q"],
+            val["n"] * val["threshold"],  # n × threshold
+            (val["n"] ** 2) * val["threshold"],  # n² × threshold
+            val["n"] * val["depth_proxy"],  # n × depth
+            val["depth_proxy"] * val["threshold"],  # depth × threshold
         ]
-
+ 
         X.append(features)
         y.append(val["seconds"])
-
 
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    y_log = np.log2(y)
-
+    y_log = np.log2(y) 
     feature_size = len(X[0])
 
     
@@ -292,41 +289,39 @@ def main(args):
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32).reshape(-1, 1)
     y_test_tensor = torch.tensor(y_test, dtype=torch.float32).reshape(-1, 1)
 
-
     model = NonLinearModel(feature_size)
     criterion = nn.MSELoss()  
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
-    # model = LinearRegression().fit(X_train, y_train) 
-    # y_pred = model.predict(X_test)
+    model_path = 'model_weights.pth'
+    
+    # Try to load existing model weights
+    if os.path.exists(model_path):
+        print(f'Loading saved model weights from {model_path}')
+        model.load_state_dict(torch.load(model_path))
+        print('Model loaded successfully!')
+    else:
+        print('No saved model found. Training new model...')
+        # Create the model
+        for epoch in range(1000):
+            # Forward pass: Compute predicted y by passing 
+            # x to the model
+            pred_y = model(X_train_tensor)
 
-    # # Convert back from log space to original seconds
-    # actual_original = 2 ** y_test 
-    # predicted_original = 2 ** y_pred    
+            # Compute and print loss
+            loss = criterion(pred_y, y_train_tensor)
 
-    # for i in range(len(actual_original)):
-    #     actual = actual_original[i]
-    #     predicted = predicted_original[i]
-    #     error_pct = abs(predicted - actual) / actual * 100
-    #     print(f'Expected: {actual:.2f}s, Predicted: {predicted:.2f}s, Error: {error_pct:.1f}%')
+            # Zero gradients, perform a backward pass, 
+            # and update the weights.
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            if epoch % 100 == 0:
+                print('epoch {}, loss {}'.format(epoch, loss.item()))
         
-
-    # Create the model
-    for epoch in range(1000):
-        # Forward pass: Compute predicted y by passing 
-        # x to the model
-        pred_y = model(X_train_tensor)
-
-        # Compute and print loss
-        loss = criterion(pred_y, y_train_tensor)
-
-        # Zero gradients, perform a backward pass, 
-        # and update the weights.
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        if epoch % 100 == 0:
-            print('epoch {}, loss {}'.format(epoch, loss.item()))
+        # Save the trained model
+        torch.save(model.state_dict(), model_path)
+        print(f'Model weights saved to {model_path}')
 
 
     # Add evaluation here:
@@ -335,11 +330,12 @@ def main(args):
         # Get predictions on test set
         y_pred_log = model(X_test_tensor)
         
-
-        y_pred_log_clamped = torch.clamp(y_pred_log, min=-5, max=5)
-
         # Convert back from log space to original seconds
-        y_pred = 2 ** np.array(y_pred_log_clamped)              
+        y_pred = 2 ** np.array(y_pred_log)
+        
+        # Cap predictions at 400 seconds
+        y_pred = np.minimum(y_pred, 400)
+        
         y_test_original = 2 ** np.array(y_test_tensor)
         
         # Calculate metrics
@@ -350,202 +346,13 @@ def main(args):
         print(f'MSE: {mse:.2f}')
         print(f'MAE: {mae:.2f}')
         
-        # Plot prediction errors
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        
-        # 1. Predicted vs Actual scatter plot
-        ax1 = axes[0, 0]
-        ax1.scatter(y_test_original, y_pred, alpha=0.6, edgecolors='k', linewidths=0.5)
-        min_val = min(y_test_original.min(), y_pred.min())
-        max_val = max(y_test_original.max(), y_pred.max())
-        ax1.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect prediction')
-        ax1.set_xlabel('Actual Runtime (seconds)', fontsize=11)
-        ax1.set_ylabel('Predicted Runtime (seconds)', fontsize=11)
-        ax1.set_title('Predicted vs Actual Runtime', fontsize=12, fontweight='bold')
-        ax1.legend()
-        ax1.grid(True, alpha=0.3)
-        
-        # 2. Error distribution histogram
-        ax2 = axes[0, 1]
-        errors = (y_pred - y_test_original).flatten()
-        ax2.hist(errors, bins=30, edgecolor='black', alpha=0.7)
-        ax2.axvline(x=0, color='r', linestyle='--', linewidth=2, label='Zero error')
-        ax2.set_xlabel('Prediction Error (seconds)', fontsize=11)
-        ax2.set_ylabel('Frequency', fontsize=11)
-        ax2.set_title('Error Distribution', fontsize=12, fontweight='bold')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3, axis='y')
-        
-        # 3. Percentage error
-        ax3 = axes[1, 0]
-        percent_errors = np.abs((y_pred - y_test_original) / y_test_original * 100).flatten()
-        ax3.scatter(range(len(percent_errors)), percent_errors, alpha=0.6, edgecolors='k', linewidths=0.5)
-        ax3.axhline(y=percent_errors.mean(), color='r', linestyle='--', linewidth=2, 
-                   label=f'Mean: {percent_errors.mean():.1f}%')
-        ax3.set_xlabel('Test Sample Index', fontsize=11)
-        ax3.set_ylabel('Absolute Percentage Error (%)', fontsize=11)
-        ax3.set_title('Percentage Error per Sample', fontsize=12, fontweight='bold')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
-        
-        # 4. Error vs Actual value
-        ax4 = axes[1, 1]
-        ax4.scatter(y_test_original, errors, alpha=0.6, edgecolors='k', linewidths=0.5)
-        ax4.axhline(y=0, color='r', linestyle='--', linewidth=2, label='Zero error')
-        ax4.set_xlabel('Actual Runtime (seconds)', fontsize=11)
-        ax4.set_ylabel('Prediction Error (seconds)', fontsize=11)
-        ax4.set_title('Error vs Actual Runtime', fontsize=12, fontweight='bold')
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.show()
-        
-        print(f'\nError Statistics:')
-        print(f'Mean Absolute Error: {mae:.2f} seconds')
-        print(f'Mean Percentage Error: {percent_errors.mean():.2f}%')
-        print(f'Median Percentage Error: {np.median(percent_errors):.2f}%')
-        print(f'Max Percentage Error: {percent_errors.max():.2f}%')
-        
-        # Plot error vs threshold
-        test_thresholds = []
-        test_errors = []
-        test_percent_errors = []
-        
-        for i, val in enumerate(flattened):
-            if val["file_name"] in test_files:
-                idx = len(test_thresholds)
-                if idx < len(y_pred):
-                    test_thresholds.append(val["threshold"])
-                    test_errors.append(errors[idx])
-                    test_percent_errors.append(percent_errors[idx])
-        
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-        
-        # Error vs Threshold (log scale)
-        ax1 = axes[0]
-        scatter = ax1.scatter(test_thresholds, test_errors, 
-                             c=test_percent_errors, cmap='coolwarm', 
-                             alpha=0.7, edgecolors='k', linewidths=0.5, s=60)
-        ax1.axhline(y=0, color='black', linestyle='--', linewidth=2, alpha=0.5)
-        ax1.set_xlabel('Threshold', fontsize=12)
-        ax1.set_ylabel('Prediction Error (seconds)', fontsize=12)
-        ax1.set_title('Prediction Error vs Threshold', fontsize=13, fontweight='bold')
-        ax1.set_xscale('log')
-        ax1.grid(True, alpha=0.3)
-        plt.colorbar(scatter, ax=ax1, label='% Error')
-        
-        # Percentage Error vs Threshold
-        ax2 = axes[1]
-        ax2.scatter(test_thresholds, test_percent_errors, 
-                   alpha=0.7, edgecolors='k', linewidths=0.5, s=60)
-        ax2.axhline(y=percent_errors.mean(), color='r', linestyle='--', 
-                   linewidth=2, label=f'Mean: {percent_errors.mean():.1f}%')
-        ax2.set_xlabel('Threshold', fontsize=12)
-        ax2.set_ylabel('Absolute Percentage Error (%)', fontsize=12)
-        ax2.set_title('Percentage Error vs Threshold', fontsize=13, fontweight='bold')
-        ax2.set_xscale('log')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.show()
-        
         # Show sample predictions
         print(f'\nSample Predictions vs Actual:')
         for i in range(len(y_pred)):
             actual = y_test_original[i][0]
             predicted = y_pred[i][0]
             error_pct = abs(predicted - actual) / actual * 100
-            print(f'Expected: {actual:.2f}s, Predicted: {predicted:.2f}s, Error: {error_pct:.1f}%, File: {flattened[i]["file_name"]}')
-    
-    # Plot expected time vs threshold for a sample circuit
-    print(f'\n\nPlotting Expected Time vs Threshold...')
-    
-    # Pick a representative circuit from the test set
-    sample_circuit = None
-    for val in flattened:
-        if val["file_name"] in test_files:
-            sample_circuit = val
-            break
-    
-    if sample_circuit:
-        # Generate threshold values where log2(threshold) ranges from 1 to 8
-        # This means threshold ranges from 2^1=2 to 2^8=256
-        threshold_range = np.logspace(1, 8, 100, base=2)
-        
-        predictions_by_config = {}
-        colors_map = {
-            (True, True): 'blue',    # CPU/Single
-            (True, False): 'red',    # CPU/Double
-            (False, True): 'green',  # GPU/Single
-            (False, False): 'orange' # GPU/Double
-        }
-        labels_map = {
-            (True, True): 'CPU/Single',
-            (True, False): 'CPU/Double',
-            (False, True): 'GPU/Single',
-            (False, False): 'GPU/Double'
-        }
-        
-        # Generate predictions for each configuration
-        for is_cpu in [True, False]:
-            for is_single in [True, False]:
-                config = (is_cpu, is_single)
-                predictions = []
-                
-                for threshold in threshold_range:
-                    # Build feature vector (must match training features)
-                    features = [
-                        threshold,
-                        int(is_cpu),
-                        int(is_single),
-                        sample_circuit["depth_proxy"]
-                    ]
-                    
-                    # Scale features using the same scaler
-                    features_scaled = scaler.transform([features])
-                    features_tensor = torch.tensor(features_scaled, dtype=torch.float32)
-                    
-                    # Predict
-                    with torch.no_grad():
-                        pred_log = model(features_tensor)
-                        pred_seconds = 2 ** pred_log.item()
-                        predictions.append(pred_seconds)
-                
-                predictions_by_config[config] = predictions
-        
-        # Plot
-        plt.figure(figsize=(12, 8))
-        for config, preds in predictions_by_config.items():
-            plt.plot(threshold_range, preds, 
-                    color=colors_map[config], 
-                    label=labels_map[config],
-                    linewidth=2, alpha=0.8)
-        
-        plt.xscale('log')
-        plt.yscale('log')
-        plt.xlabel('Threshold', fontsize=12)
-        plt.ylabel('Expected Runtime (seconds)', fontsize=12)
-        plt.title(f'Expected Runtime vs Threshold\nCircuit: {sample_circuit["file_name"]} (depth_proxy={sample_circuit["depth_proxy"]})', 
-                 fontsize=14)
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.show()
-        
-        print(f'Plotted predictions for circuit: {sample_circuit["file_name"]}')
-
-
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scaler': scaler,
-        'feature_size': feature_size,
-        'epoch': epoch,
-        'loss': loss.item(),
-    }, 'artifacts\model_forward_wall_s.pth')
-    print("Model checkpoint saved")
+            print(f'Expected: {actual:.2f}s, Predicted: {predicted:.2f}s, Error: {error_pct:.1f}%')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
