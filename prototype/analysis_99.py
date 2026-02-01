@@ -23,7 +23,7 @@ def extract_polynomial_features(threshold_sweep, degree=5):
     #         "poly_min_fidelity": 0.0, "poly_fidelity_range": 0.0, "poly_cross_99": 0.0
     #     }
 
-    # failsafe
+    # Fail Safe
     if len(thresholds) < 3:
         return _empty_poly_features(degree)
 
@@ -37,7 +37,7 @@ def extract_polynomial_features(threshold_sweep, degree=5):
         
         features = {}
         
-        # Polynomial coe recurse
+        # Polynomial coef recurse
         for i in range(min(len(coefs), degree + 1)):
             features[f"poly_coef_{i}"] = float(coefs[i])
         for i in range(len(coefs), degree + 1):
@@ -166,8 +166,11 @@ def load_data(data_path, circuits_dir):
     
     df = pd.DataFrame(rows)
     
-    # Create interaction features
-    base_features = [c for c in df.columns if c not in ['min_threshold', 'forward_runtime', 'log_runtime', 'family', 'file_name']]
+    # Create axis_ac feature (Volume × Packing) - high correlation with threshold
+    if 'axis_a_volume' in df.columns and 'axis_c_packing' in df.columns:
+        df['axis_ac'] = df['axis_a_volume'] * df['axis_c_packing']
+    
+    base_features = [c for c in df.columns if c not in ['min_threshold', 'forward_runtime', 'log_runtime', 'family', 'file_name', 'axis_ac']]
     interactions_df = create_interactions(df, base_features)
     df = pd.concat([df, interactions_df], axis=1)
     
