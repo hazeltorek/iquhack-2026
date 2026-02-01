@@ -1,6 +1,7 @@
 import argparse
 import json, os, re
 import networkx as nx
+from typing import Dict
 
 import copy
 import tqdm
@@ -23,19 +24,16 @@ def get_pairs(qasm):
     # i saw the face of god in a regular expression
     return sorted(list(set([tuple(sorted(list(map(int, p)))) for p in re.findall(r"[a-z]+(?:\((?:-{0,1}(?:\d+\.{0,1}\d+|pi(?:\/\d+){0,1}),{0,1}){1,3}\)){0,1}\sq\[(\d+)\],\s*q\[(\d+)\];", qasm)])))
 
-# build interaction graph and get cool useful statistics out of it
-graphs = {f: nx.Graph(get_pairs("\n".join(qasm))) for (f, qasm) in code}
-for f in data.keys(): 
-    data[f]["degree"] = max([0] + list(map(lambda d: d[1], graphs[(fn := f"{f}.qasm")].degree())))
-    data[f]["n_edges"] = graphs[fn].number_of_edges()
-    data[f]["centrality"] = max([0] + list(nx.degree_centrality(graphs[fn]).values()))
-    data[f]["n_clusters"] = nx.number_connected_components(graphs[fn])
-
 # organized data!
 def process_circuit(name):
     a = [circ for circ in circuits if circ["file"] == name][0]
     b = [res for res in results if res["file"] == name]
     qasm = [c for (f, c) in code if f == name][0]
+    qasm_text = "\n".join(qasm)
+
+    depth_proxy_dict = extract_depth_proxy(qasm_text)
+    circuit_depth_dict = extract_circuit_depth(qasm_text, a["n_qubits"])
+
     length = len(qasm)
 
     # graph metrics
@@ -59,6 +57,14 @@ def process_circuit(name):
                 "seconds": run_fid['run_wall_s']
             })
 
+    # fuck shit mcballs
+    degrees = [d for _, d in G.degree()]
+    avg_degree = sum(degrees) / len(degrees) if degrees else 0.0
+    if len(degrees) > 1:
+        degree_variance = sum((d - avg_degree) ** 2 for d in degrees) / len(degrees)
+    else:
+        degree_variance = 0.0
+
     # organize results by the given predictors (cpu/gpu, single/double)
     pred = {(r["backend"] == "CPU", r["precision"] == "single"): b for r in b}
     return {
@@ -67,7 +73,84 @@ def process_circuit(name):
         "file_len": length, 
         "results": pred,
         "just_past": just_past,
-        "max_deg": max([0] + list(map(lambda d: d[1], G.degree())))
+        "max_deg": max([0] + list(map(lambda d: d[1], G.degree()))),
+        "ent_var": degree_variance,
+        "depth_proxy": depth_proxy_dict["depth_proxy"],  # Extract the value
+        "circuit_depth": circuit_depth_dict["circuit_depth"],  # Extract the value
+        "n_barriers": circuit_depth_dict["n_barriers"]
+    }
+
+def extract_circuit_depth(qasm_text: str, n_qubits: int) -> Dict[str, float]:
+    """Extract true circuit depth using time-evolution analysis (QASMBench method)."""
+    # Parse gates
+    lines = [ln.strip() for ln in qasm_text.splitlines() 
+             if ln.strip() and not ln.strip().startswith("//") 
+             and not ln.strip().startswith("OPENQASM")
+             and not ln.strip().startswith("include")
+             and not ln.strip().startswith("qreg")
+             and not ln.strip().startswith("creg")]
+    
+    qubit_timeline = {q: [] for q in range(n_qubits)}
+    
+    qubit_pattern = re.compile(r"q\[(\d+)\]")
+    
+    current_time = 0
+    active_qubits = set()
+    
+    for line in lines:
+        if line.startswith("barrier"):
+            # Barrier forces a new time step
+            if active_qubits:
+                current_time += 1
+                active_qubits = set()
+            continue
+        
+        if line.startswith("measure"):
+            # Measurements happen at the end, don't affect depth
+            continue
+        
+        # Extract qubits involved in this gate
+        qubits_in_gate = [int(m) for m in qubit_pattern.findall(line)]
+        
+        if qubits_in_gate:
+            if active_qubits.isdisjoint(set(qubits_in_gate)):
+                active_qubits.update(qubits_in_gate)
+            else:
+                current_time += 1
+                active_qubits = set(qubits_in_gate)
+    
+    # Final time step
+    if active_qubits:
+        current_time += 1
+    
+    circuit_depth = current_time
+    
+    n_barriers = len(re.findall(r"\bbarrier\b", qasm_text))
+    
+    return {
+        "circuit_depth": float(circuit_depth),
+        "n_barriers": float(n_barriers),
+        "depth_proxy": float(len([ln for ln in lines if not ln.startswith("measure")])),
+    }
+
+
+def extract_depth_proxy(qasm_text: str) -> Dict[str, float]:
+    """Extract crude depth proxy by counting barriers or estimating layers."""
+    # Count barriers (often used to separate layers)
+    n_barriers = len(re.findall(r"\bbarrier\b", qasm_text))
+    
+    # Simple heuristic this is very approximate but can help
+    lines = [ln.strip() for ln in qasm_text.splitlines() 
+             if ln.strip() and not ln.strip().startswith("//")]
+    
+    #Big brother recommended
+    gate_lines = [ln for ln in lines 
+                  if not ln.startswith("measure") and not ln.startswith("barrier")]
+    depth_proxy = len(gate_lines)
+    
+    return {
+        "n_barriers": float(n_barriers),
+        "depth_proxy": float(depth_proxy),
     }
 
 def make_flattened():
@@ -81,11 +164,13 @@ def make_flattened():
         n_cx = len(re.findall(r"\bcx\b", text))
         n_cz = len(re.findall(r"\bcz\b", text))
         n_1q = len(re.findall(r"\b(h|x|y|z|s|sdg|t|tdg|rx|ry|rz|u1|u2|u3)\b", text))
-        
+ 
         for result in entry["just_past"]:
             ret.append({
                 "file_name": file_name,
                 "n": entry["n"],
+                "max_deg": entry["max_deg"],
+                "ent_var": entry["ent_var"],
                 "file_len": entry["file_len"],
                 "lines": text.count("\n"),
                 "family": entry["family"],
@@ -96,7 +181,11 @@ def make_flattened():
                 "n_meas": n_meas,
                 "n_cx": n_cx,
                 "n_cz": n_cz,
-                "n_1q": n_1q
+                "n_1q": n_1q,
+                "depth_proxy": entry["depth_proxy"],
+                "circuit_depth": entry["circuit_depth"],
+                "n_barriers": entry["n_barriers"] 
+                
             })
     return ret
 
@@ -137,32 +226,30 @@ def main(args):
     data = {re.match(r"(.+).qasm", f)[1]: process_circuit(f) for (f, _) in code}
     flattened = make_flattened()
 
-
     X = [] # Input Feature Data 
     y = [] # Threshold Values
 
     for val in flattened:
 
-        
-
         features = [
-            # val["n"],
-            # val["file_len"], 
-            # val["lines"],
-            # int(val["is_cpu"]),
-            # int(val["is_single"]),
-            # val["threshold"],
-            # val["n_meas"],
-            # val["n_cx"],
-            # val["n_cz"],
-            # val["n_1q"],
-
-
-            
+            val["n"],
+            val["max_deg"],
+            val["file_len"], 
+            val["lines"],
+            val["threshold"],
+            val["n_meas"],
+            val["n_cx"],
+            val["n_cz"],
+            val["n_1q"],   
+            val["ent_var"],
+            val["depth_proxy"],
+            val["circuit_depth"],
+            val["n_barriers"]    
         ]
-
+ 
         X.append(features)
         y.append(val["seconds"])
+
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -170,7 +257,33 @@ def main(args):
     y_log = np.log2(y) 
     feature_size = len(X[0])
 
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_log, test_size=0.2, random_state=42)
+    
+    # Define test files 
+    test_files = {
+        'ae_indep_qiskit_130', 'dj_indep_qiskit_30', 'ghz_indep_qiskit_30', 
+        'ghz_indep_qiskit_130', 'grover-noancilla_indep_qiskit_11', 
+        'grover-v-chain_indep_qiskit_17', 'portfolioqaoa_indep_qiskit_17',
+        'portfoliovqe_indep_qiskit_18', 'qft_indep_qiskit_15', 
+        'qftentangled_indep_qiskit_30', 'qpeexact_indep_qiskit_30', 
+        'wstate_indep_qiskit_130'
+    }
+
+    # Split data based on file names
+    X_train, X_test, y_train, y_test = [], [], [], []
+
+    for i, val in enumerate(flattened):
+        if val["file_name"] in test_files:
+            X_test.append(X_scaled[i])
+            y_test.append(y_log[i])
+        else:
+            X_train.append(X_scaled[i])
+            y_train.append(y_log[i])
+
+    # Convert to numpy arrays
+    X_train = np.array(X_train)
+    X_test = np.array(X_test)
+    y_train = np.array(y_train)
+    y_test = np.array(y_test)
 
     # Convert data to PyTorch tensors
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
