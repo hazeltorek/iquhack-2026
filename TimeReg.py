@@ -19,6 +19,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 
+from sklearn.linear_model import LinearRegression
+
 # pairs of qubits that interact via 2-qubit gates
 def get_pairs(qasm):
     # i saw the face of god in a regular expression
@@ -232,19 +234,21 @@ def main(args):
     for val in flattened:
 
         features = [
-            val["n"],
-            val["max_deg"],
-            val["file_len"], 
-            val["lines"],
+            # val["n"],
+            # val["max_deg"],
+            # # val["file_len"], 
+            # val["lines"],
             val["threshold"],
-            val["n_meas"],
-            val["n_cx"],
-            val["n_cz"],
-            val["n_1q"],   
-            val["ent_var"],
+            # val["n_meas"],
+            int(val["is_cpu"]),
+            int(val["is_single"]),
+            # val["n_cx"],
+            # val["n_cz"],
+            # val["n_1q"],   
+            # val["ent_var"],
             val["depth_proxy"],
-            val["circuit_depth"],
-            val["n_barriers"]    
+            #val["circuit_depth"],
+            #val["n_barriers"]    
         ]
  
         X.append(features)
@@ -254,7 +258,8 @@ def main(args):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    y_log = np.log2(y) 
+    y_log = np.log2(y)
+
     feature_size = len(X[0])
 
     
@@ -295,6 +300,19 @@ def main(args):
     criterion = nn.MSELoss()  
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
+    # model = LinearRegression().fit(X_train, y_train) 
+    # y_pred = model.predict(X_test)
+
+    # # Convert back from log space to original seconds
+    # actual_original = 2 ** y_test 
+    # predicted_original = 2 ** y_pred    
+
+    # for i in range(len(actual_original)):
+    #     actual = actual_original[i]
+    #     predicted = predicted_original[i]
+    #     error_pct = abs(predicted - actual) / actual * 100
+    #     print(f'Expected: {actual:.2f}s, Predicted: {predicted:.2f}s, Error: {error_pct:.1f}%')
+        
 
     # Create the model
     for epoch in range(1000):
@@ -334,7 +352,7 @@ def main(args):
         
         # Show sample predictions
         print(f'\nSample Predictions vs Actual:')
-        for i in range(min(10, len(y_pred))):
+        for i in range(len(y_pred)):
             actual = y_test_original[i][0]
             predicted = y_pred[i][0]
             error_pct = abs(predicted - actual) / actual * 100
