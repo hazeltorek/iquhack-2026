@@ -1,13 +1,19 @@
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from analysis_99 import load_data
 
 plt.ion()
 
-data_path = Path("data/hackathon_public.json")
-circuits_dir = Path("circuits")
+# Paths relative to project root
+data_path = Path("../data/hackathon_public.json")
+circuits_dir = Path("../circuits")
 
 df = load_data(data_path, circuits_dir)
 

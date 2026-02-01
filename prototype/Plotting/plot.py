@@ -1,20 +1,25 @@
 import argparse
+import sys
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from visualize import plot_best_correlations
 
 plt.ion()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, default="data/hackathon_public.json")
-    parser.add_argument("--circuits", type=str, default="circuits")
+    parser.add_argument("--data", type=str, default="../data/hackathon_public.json")
+    parser.add_argument("--circuits", type=str, default="../circuits")
     parser.add_argument("--top-n", type=int, default=3, help="Number of top correlations to plot")
     parser.add_argument("--fidelity", type=float, default=0.99, choices=[0.75, 0.99], 
                        help="Fidelity target: 0.75 or 0.99 (default: 0.99)")
     args = parser.parse_args()
 
-    # Import fidelity
+    # Import based on fidelity target
     if args.fidelity == 0.75:
         from analysis_75 import load_data_075 as load_data, get_correlations
     else:

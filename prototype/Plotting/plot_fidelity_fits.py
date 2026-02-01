@@ -7,8 +7,9 @@ import math
 
 plt.ion()
 
-data_path = Path("data/hackathon_public.json")
-circuits_dir = Path("circuits")
+# Paths relative to project root
+data_path = Path("../data/hackathon_public.json")
+circuits_dir = Path("../circuits")
 
 # Load data
 with open(data_path) as f:
