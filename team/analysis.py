@@ -1,6 +1,10 @@
 import json, os, re
 import matplotlib.pyplot as plt
 import networkx as nx
+from qiskit.circuit import QuantumCircuit
+import qiskit.qasm2
+import numpy as np
+
 
 cats = {(True, True): {}, (True, False): {}, (False, True): {}, (False, False): {}}
 
@@ -20,21 +24,31 @@ def process_circuit(name):
     
     just_past = []
     for test in b:
-        run_fid = None
+        run_fids = []
+        min_run = None
         for run in sorted(test['threshold_sweep'], key=lambda x: x["threshold"]):
             fid = run["sdk_get_fidelity"]
-            if isinstance(fid, float) and fid > 0.99:
-                run_fid = run
-                break
-        if run_fid is not None:
+            print(run["threshold"])
+            if isinstance(fid, float):
+                run_fids.append(run)
+                if fid >= 0.99 and min_run is None :
+                    min_run = run
+        for run_fid in run_fids:
+            # print(run_fid["th"])
+            # if fid < 0.99:
+            #     continue
             just_past.append({
                 "threshold": run_fid["threshold"],
                 "is_cpu": test["backend"] == "CPU",
                 "is_single": test["precision"] == "single",
                 "backend": test["backend"],
                 "precision": test["precision"],
-                "seconds": run_fid['run_wall_s']
+                "seconds": run_fid['run_wall_s'],
+                "fidelity": run_fid["sdk_get_fidelity"],
+                "min_threshold": min_run["threshold"] if min_run else None,
+                "min_fidelity": min_run["sdk_get_fidelity"] if min_run else None,
             })
+            # break
 
     # organize results by the given predictors (cpu/gpu, single/double)
     pred = {(r["backend"] == "CPU", r["precision"] == "single"): b for r in b}
@@ -57,6 +71,9 @@ def make_flattened():
         n_cx = len(re.findall(r"\bcx\b", text))
         n_cz = len(re.findall(r"\bcz\b", text))
         n_1q = len(re.findall(r"\b(h|x|y|z|s|sdg|t|tdg|rx|ry|rz|u1|u2|u3)\b", text))
+        text = text.replace("u(", "u3(")
+        text = text.replace("cp(", "cu1(")
+        # qc = QuantumCircuit.from_qasm_str(text)
         
         for result in entry["just_past"]:
             ret.append({
@@ -71,9 +88,21 @@ def make_flattened():
                 "n_cx": n_cx,
                 "n_cz": n_cz,
                 "n_1q": n_1q,
+                "fidelity": result["fidelity"],
+                "depth_proxy": extract_depth_proxy(text)["depth_proxy"],
+                "n_barriers": extract_depth_proxy(text)["n_barriers"],
+                "centrality": entry["centrality"],
+                "degree": entry["degree"],
+                "n_edges": entry["n_edges"],
+                "n_clusters": entry["n_clusters"],
+                # "qc_depth": qc.depth(),
+                # "qc_width": qc.width(),
+
 
                 # predict these:
                 "threshold": result["threshold"],
+                "min_threshold": result["min_threshold"],
+                "min_fidelity": result["min_fidelity"],
                 "seconds": result["seconds"],
             })
     return ret
@@ -86,7 +115,7 @@ def get_pairs(qasm):
     # i saw the face of god in a regular expression
     return sorted(list(set([tuple(sorted(list(map(int, p)))) for p in re.findall(r"[a-z]+(?:\((?:-{0,1}(?:\d+\.{0,1}\d+|pi(?:\/\d+){0,1}),{0,1}){1,3}\)){0,1}\sq\[(\d+)\],\s*q\[(\d+)\];", qasm)])))
 
-# build interaction graph and get cool useful statistics out of it
+# # build interaction graph and get cool useful statistics out of it
 graphs = {f: nx.Graph(get_pairs("\n".join(qasm))) for (f, qasm) in code}
 for f in data.keys(): 
     data[f]["degree"] = max([0] + list(map(lambda d: d[1], graphs[(fn := f"{f}.qasm")].degree())))
@@ -94,7 +123,23 @@ for f in data.keys():
     data[f]["centrality"] = max([0] + list(nx.degree_centrality(graphs[fn]).values()))
     data[f]["n_clusters"] = nx.number_connected_components(graphs[fn])
 
-print(data[code[2][0][:-5]]["degree"])
-print(data[code[2][0][:-5]]["n_edges"])
-print(data[code[2][0][:-5]]["centrality"])
-print(data[code[2][0][:-5]]["n_clusters"])
+def extract_depth_proxy(qasm_text: str):
+    """Extract crude depth proxy by counting barriers or estimating layers."""
+    # Count barriers (often used to separate layers)
+    n_barriers = len(re.findall(r"\bbarrier\b", qasm_text))
+    
+    # Simple heuristic this is very approximate but can help
+    lines = [ln.strip() for ln in qasm_text.splitlines() 
+             if ln.strip() and not ln.strip().startswith("//")]
+    
+    #Big brother recommended
+    gate_lines = [ln for ln in lines 
+                  if not ln.startswith("measure") and not ln.startswith("barrier")]
+    depth_proxy = len(gate_lines)
+    
+    return {
+        "n_barriers": float(n_barriers),
+        "depth_proxy": float(depth_proxy),
+    }
+
+flattened = make_flattened()
