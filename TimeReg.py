@@ -1,5 +1,6 @@
 import argparse
 import json, os, re
+import networkx as nx
 
 import copy
 import tqdm
@@ -17,13 +18,28 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 
+# pairs of qubits that interact via 2-qubit gates
+def get_pairs(qasm):
+    # i saw the face of god in a regular expression
+    return sorted(list(set([tuple(sorted(list(map(int, p)))) for p in re.findall(r"[a-z]+(?:\((?:-{0,1}(?:\d+\.{0,1}\d+|pi(?:\/\d+){0,1}),{0,1}){1,3}\)){0,1}\sq\[(\d+)\],\s*q\[(\d+)\];", qasm)])))
 
+# build interaction graph and get cool useful statistics out of it
+graphs = {f: nx.Graph(get_pairs("\n".join(qasm))) for (f, qasm) in code}
+for f in data.keys(): 
+    data[f]["degree"] = max([0] + list(map(lambda d: d[1], graphs[(fn := f"{f}.qasm")].degree())))
+    data[f]["n_edges"] = graphs[fn].number_of_edges()
+    data[f]["centrality"] = max([0] + list(nx.degree_centrality(graphs[fn]).values()))
+    data[f]["n_clusters"] = nx.number_connected_components(graphs[fn])
 
 # organized data!
 def process_circuit(name):
     a = [circ for circ in circuits if circ["file"] == name][0]
     b = [res for res in results if res["file"] == name]
-    length = [len(c) for (f, c) in code if f == name][0]
+    qasm = [c for (f, c) in code if f == name][0]
+    length = len(qasm)
+
+    # graph metrics
+    G = nx.Graph(get_pairs("\n".join(qasm)))
     
     just_past = []
     for test in b:
@@ -51,6 +67,7 @@ def process_circuit(name):
         "file_len": length, 
         "results": pred,
         "just_past": just_past,
+        "max_deg": max([0] + list(map(lambda d: d[1], G.degree())))
     }
 
 def make_flattened():
@@ -212,9 +229,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tasks", type = str, default="data\hackathon_public.json")
+    parser.add_argument("--tasks", type = str, default=r"data\hackathon_public.json")
     parser.add_argument("--circuits", type = str, default="circuits")
-    parser.add_argument("--id-map", type = str, default="data\holdout_public.json")
+    parser.add_argument("--id-map", type = str, default=r"data\holdout_public.json")
     parser.add_argument("--out", type = str, default="predictions.json")
     args = parser.parse_args()
 
