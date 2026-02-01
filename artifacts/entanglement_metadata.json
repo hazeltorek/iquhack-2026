@@ -1,0 +1,39 @@
+{
+  "model_type": "random_forest_aggressive_binning",
+  "features": [
+    "poly_cross_75",
+    "entanglement_stress",
+    "axis_ac",
+    "n_qubits_div_entanglement_variance",
+    "gate_density_x_n_edges",
+    "circuit_depth_div_entanglement_variance",
+    "poly_fidelity_range",
+    "poly_max_fidelity",
+    "poly_slope_mid",
+    "density",
+    "n_2q_gates_div_entanglement_variance",
+    "n_cz",
+    "max_centrality",
+    "n_barriers",
+    "axis_c_packing",
+    "avg_degree",
+    "poly_coef_0",
+    "poly_coef_2",
+    "n_2q_gates_div_gates_per_qubit",
+    "early_density"
+  ],
+  "difficulty_features": [
+    "entanglement_stress",
+    "axis_a_volume",
+    "axis_c_packing",
+    "circuit_depth",
+    "n_qubits"
+  ],
+  "train_correlation": 0.9747885927173282,
+  "test_correlation": 0.8362084385283203,
+  "train_underestimation_rate": 0.0,
+  "test_underestimation_rate": 0.0,
+  "fidelity_target": 0.75,
+  "used_recommended_split": true,
+  "binning_method": "feature_based_aggressive"
+}
